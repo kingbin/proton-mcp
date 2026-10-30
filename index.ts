@@ -246,8 +246,8 @@ async function main(): Promise<void> {
       process.exitCode = await pinCert(arg);
       return;
     case "doctor":
-      process.exitCode = await doctor();
-      return;
+      // The Bridge connection keeps the event loop alive, so exit explicitly.
+      process.exit(await doctor());
     default:
       process.stderr.write(USAGE);
       process.exitCode = 2;
