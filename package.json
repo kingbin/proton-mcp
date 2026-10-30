@@ -1,0 +1,59 @@
+{
+  "name": "proton-mcp",
+  "version": "0.1.0",
+  "description": "Read-only local MCP server for Proton Mail (via Proton Mail Bridge) that saves attachments into a local folder (e.g. an Obsidian vault).",
+  "type": "module",
+  "main": "./build/index.js",
+  "bin": {
+    "proton-mcp": "./build/index.js"
+  },
+  "files": [
+    "build/index.js",
+    "build/index.d.ts",
+    "build/core/**/*.js",
+    "build/core/**/*.d.ts",
+    "build/Mail/**/*.js",
+    "build/Mail/**/*.d.ts",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "start": "node build/index.js",
+    "test": "npm run build && node --test build/tests/"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "proton",
+    "protonmail",
+    "bridge",
+    "imap"
+  ],
+  "author": "628 Productions",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kingbin/proton-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kingbin/proton-mcp/issues"
+  },
+  "homepage": "https://github.com/kingbin/proton-mcp#readme",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "imapflow": "2.10.0",
+    "mailparser": "3.14.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/mailparser": "3.9.0",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}
