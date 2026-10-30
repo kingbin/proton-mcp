@@ -22,7 +22,7 @@
     "build": "tsc",
     "prepare": "npm run build",
     "start": "node build/index.js",
-    "test": "npm run build && node --test build/tests/"
+    "test": "npm run build && node --test \"build/tests/**/*.test.js\""
   },
   "keywords": [
     "mcp",
