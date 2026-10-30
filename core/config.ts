@@ -29,6 +29,8 @@ export interface Config {
   maxAttachmentBytes: number;
   /** Save .docx/.xlsx/.pptx at all. Off by default: the Office check is a best-effort filter. */
   allowOfficeDocuments: boolean;
+  /** Save .md at all. Off by default: Obsidian plugins (Dataview JS, Templater...) can run code in notes. */
+  allowMarkdown: boolean;
 }
 
 const DEFAULT_MAX_BYTES = 26214400;
@@ -78,6 +80,7 @@ const schema = z.strictObject({
   }),
   maxAttachmentBytes: z.number().int().positive().default(DEFAULT_MAX_BYTES),
   allowOfficeDocuments: z.boolean().default(false),
+  allowMarkdown: z.boolean().default(false),
 });
 
 /** One line for `doctor` saying whether Office documents can be saved. */
@@ -85,6 +88,13 @@ export function officeStatus(cfg: Config): string {
   return cfg.allowOfficeDocuments
     ? "Office documents (.docx, .xlsx, .pptx): enabled (allowOfficeDocuments: true; best-effort checks, see SECURITY.md)"
     : "Office documents (.docx, .xlsx, .pptx): disabled (set allowOfficeDocuments: true to enable; see SECURITY.md)";
+}
+
+/** One line for `doctor` saying whether Markdown files can be saved. */
+export function markdownStatus(cfg: Config): string {
+  return cfg.allowMarkdown
+    ? "Markdown (.md): enabled (allowMarkdown: true; scripting patterns are still refused, see SECURITY.md)"
+    : "Markdown (.md): disabled (set allowMarkdown: true to enable; see SECURITY.md)";
 }
 
 export function parseConfig(raw: unknown): Config {

@@ -61,7 +61,8 @@ npm ci
        "allowedDestinations": ["Inbox", "Documents"]
      },
      "maxAttachmentBytes": 26214400,
-     "allowOfficeDocuments": false
+     "allowOfficeDocuments": false,
+     "allowMarkdown": false
    }
    ```
    - `host` must be `127.0.0.1` or `::1`.
@@ -69,6 +70,7 @@ npm ci
    - `allowedDestinations` is required and must list at least one folder, relative to `root`. Attachments can only be saved inside these folders (and their subfolders). Folders must already exist.
    - `maxAttachmentBytes` is optional and defaults to 25 MB.
    - `allowOfficeDocuments` is optional and defaults to `false`: `.docx`, `.xlsx` and `.pptx` attachments are refused. See "Office documents" below before turning it on.
+   - `allowMarkdown` is optional and defaults to `false`: `.md` attachments are refused. See "Markdown and CSV" below before turning it on.
    - Unknown keys are an error, so a typo cannot silently drop a setting.
    - The config directory, `config.json` and `bridge-cert.pem` must be owned by you, must not be group- or world-writable, and must not be symlinks. If needed:
      ```
@@ -97,10 +99,16 @@ If the config, Keychain item or certificate is missing, the server still starts.
 The save tool's description tells the assistant to confirm the message, attachment and destination with you first, and its annotations mark it as not read-only. The server itself does not enforce approval: whether you are prompted depends on your MCP client's permission settings. A save is refused unless all of these hold:
 
 - the destination is inside one of your `allowedDestinations`, after resolving symlinks, and no path segment is hidden (starts with `.`) or named `Templates`;
-- the file type is one of pdf, png, jpg, jpeg, heic, gif, txt, csv, md (and docx, xlsx, pptx only if you opt in, see below), and the content matches the extension. Legacy `.doc`/`.xls`/`.ppt` are never saveable;
+- the file type is one of pdf, png, jpg, jpeg, heic, gif, txt, csv (and md, docx, xlsx, pptx only if you opt in, see below), and the content matches the extension. Legacy `.doc`/`.xls`/`.ppt` are never saveable;
 - the name is not an instruction file that coding assistants load automatically (`CLAUDE.md`, `AGENTS.md`, `AGENTS.override.md`, `.cursorrules` and similar);
 - the file is no larger than `maxAttachmentBytes`;
 - no file of that name, and no iCloud placeholder (`.<name>.icloud`) for it, already exists.
+
+## Markdown and CSV
+
+Markdown (`.md`) is **off by default**. A note saved into an Obsidian vault can run code if plugins such as Dataview JS, JS Engine or Templater are installed. To save Markdown, set `"allowMarkdown": true`. Even then a `.md` file is refused if it contains a code fence with language `dataviewjs`, `dataview`, `js-engine`, `javascript`, `js`, `button` or `meta-bind-js`, a Templater tag (`<%`), `<script`, `<iframe`, `<object`, `<embed` or `javascript:` (all case-insensitive). This is a best-effort filter, not a sanitizer. `doctor` shows whether Markdown is enabled.
+
+CSV files are refused if any field (after surrounding quotes and leading spaces) starts with `=`, `+`, `@`, a tab or a carriage return, or with `-` followed by anything other than a digit or `.`. This blocks spreadsheet formula injection; negative numbers such as `-5` and `-0.5` are fine.
 
 ## Office documents
 

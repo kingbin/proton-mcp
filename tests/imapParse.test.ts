@@ -129,7 +129,7 @@ test("withDeadline: fast results and errors pass through without cleanup", async
 
 test("ImapStore releases the mutex after a timeout so the next call runs", async () => {
   const store = new ImapStore(
-    { bridge: { host: "127.0.0.1", port: 1, username: "u" }, mail: { allowedMailboxes: ["A"] }, vault: { root: "/v", allowedDestinations: ["D"] }, maxAttachmentBytes: 1, allowOfficeDocuments: false },
+    { bridge: { host: "127.0.0.1", port: 1, username: "u" }, mail: { allowedMailboxes: ["A"] }, vault: { root: "/v", allowedDestinations: ["D"] }, maxAttachmentBytes: 1, allowOfficeDocuments: false, allowMarkdown: false },
     "pw",
     { ca: "x", rejectUnauthorized: true, checkServerIdentity: () => undefined },
     { opTimeoutMs: 20 },

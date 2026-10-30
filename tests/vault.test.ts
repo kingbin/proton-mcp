@@ -57,8 +57,9 @@ beforeEach(async () => {
 afterEach(() => fs.rm(tmp, { recursive: true, force: true }));
 
 const OFFICE = /\.(docx|xlsx|pptx)$/i;
-/** The test config, with Office documents enabled for Office file names. */
-const cfgFor = (name: string): Config => (OFFICE.test(name) ? { ...cfg, allowOfficeDocuments: true } : cfg);
+/** The test config, with Office documents enabled for Office names and Markdown for .md names. */
+const cfgFor = (name: string): Config =>
+  OFFICE.test(name) ? { ...cfg, allowOfficeDocuments: true } : /\.md$/i.test(name) ? { ...cfg, allowMarkdown: true } : cfg;
 
 async function code(p: Promise<unknown>): Promise<string> {
   try {
@@ -181,7 +182,7 @@ test("refuses instruction-file names (case-insensitive, NFKC) and creates nothin
 });
 
 test("other .md names are still saveable", async () => {
-  assert.equal(await saveFile(cfg, HOME, "notes.md", Buffer.from("x")), `${HOME}/notes.md`);
+  assert.equal(await saveFile({ ...cfg, allowMarkdown: true }, HOME, "notes.md", Buffer.from("x")), `${HOME}/notes.md`);
 });
 
 test("sanitizeFilename strips invisible characters and applies NFKC", () => {
@@ -1243,3 +1244,101 @@ for (const nested of ["word/media/a.bin", "x/inner.docm", "x/inner.xlsm", "x/inn
     assert.equal(contentMatches(".docx", docParts([{ name: nested, data: "x" }])), false);
   });
 }
+
+// --- Markdown is opt-in ---
+
+test("Markdown is refused by default with a message saying how to enable it", async () => {
+  await assert.rejects(saveFile(cfg, HOME, "n.md", Buffer.from("# hi\n")), (e: unknown) => {
+    assert.ok(e instanceof GuardError);
+    assert.equal(e.code, "TYPE_NOT_ALLOWED");
+    assert.equal(e.message, "Markdown files are disabled; set allowMarkdown: true to enable (see SECURITY.md)");
+    return true;
+  });
+  assert.deepEqual(await fs.readdir(path.join(cfg.vault.root, HOME)), []);
+});
+
+test("benign Markdown is accepted when allowMarkdown is true", async () => {
+  const on = { ...cfg, allowMarkdown: true };
+  const md = "# Notes\n\n- item\n\n```json\n{\"a\": 1}\n```\n\n```python\nprint(1)\n```\n\nSee [link](https://example.com).\n";
+  assert.equal(await saveFile(on, HOME, "ok.md", Buffer.from(md)), `${HOME}/ok.md`);
+});
+
+const DANGEROUS_MD = [
+  "```dataviewjs\ndv.paragraph(1)\n```",
+  "```dataview\nTABLE file.name\n```",
+  "```js-engine\nreturn 1\n```",
+  "```javascript\nalert(1)\n```",
+  "```js\nalert(1)\n```",
+  "```button\nname x\n```",
+  "```meta-bind-js\nx\n```",
+  "~~~dataviewjs\nx\n~~~",
+  "> ```DataViewJS\n> x",
+  "````  JS {x}\nx",
+  "<% tp.system.prompt() %>",
+  "<script>alert(1)</script>",
+  "<SCRIPT src=x>",
+  "<iframe src=x>",
+  "<IFrame src=x>",
+  "<object data=x>",
+  "<embed src=x>",
+  "[x](javascript:alert(1))",
+  "[x](JaVaScRiPt:alert(1))",
+];
+
+for (const body of DANGEROUS_MD) {
+  test(`Markdown is refused when enabled: ${JSON.stringify(body.slice(0, 24))}`, async () => {
+    const on = { ...cfg, allowMarkdown: true };
+    assert.equal(await code(saveFile(on, HOME, "bad.md", Buffer.from("# t\n\n" + body + "\n"))), "TYPE_NOT_ALLOWED");
+    assert.deepEqual(await fs.readdir(path.join(cfg.vault.root, HOME)), []);
+  });
+}
+
+// --- CSV formula injection ---
+
+const csvOk = (s: string) => contentMatches(".csv", Buffer.from(s));
+
+test("CSV fields that start a formula are refused", () => {
+  for (const s of [
+    "a,b\n=cmd|' /c calc'!A1,2\n",
+    "a\n+1+1\n",
+    "a\n@SUM(1)\n",
+    "a\n-cmd\n",
+    "a,b\n1,\"=1+1\"\n",
+    "a,b\n1,  =1+1\n",
+    "a,b\n1,\"  =1+1\"\n",
+    "a,b\r\n1,\t2\r\n",
+    "a,b\n1,\"\t2\"\n",
+    "a,b\n1,\"line\nbreak\",\"x\"\"y\",\n=1\n",
+    "a\n-\"\"x\n",
+    "a\r\r=1\n",
+    "=1\n",
+  ]) {
+    assert.equal(csvOk(s), false, JSON.stringify(s));
+  }
+});
+
+test("ordinary CSV with negative numbers and quoted commas is accepted", () => {
+  for (const s of [
+    "name,amount,note\r\nBob,-5,\"a, b\"\r\nAmy,-0.5,\"say \"\"hi\"\"\"\r\nZed,-.5,\"x\ny=z\"\n",
+    "a,b\n1,2",
+    "a,b\n\"-3\",x+y\n",
+    "a,b\n-,a=b\n",
+    "",
+  ]) {
+    assert.equal(csvOk(s), true, JSON.stringify(s));
+  }
+});
+
+test("CSV check is linear on 1 MB of hostile filler", () => {
+  for (const [what, s] of [
+    ["quotes", '"'.repeat(1 << 20)],
+    ["escaped quotes", '"' + '""'.repeat(1 << 19)],
+    ["commas", ",".repeat(1 << 20)],
+    ["minus runs", "-".repeat(1 << 20)],
+    ["spaces then quote", " ".repeat(1 << 20) + '"'],
+    ["crlf", "a\r\n".repeat(1 << 18)],
+    ["lone CRs", "a\r".repeat(1 << 19)],
+  ] as const) {
+    fast(`csv ${what}`, () => csvOk(s));
+  }
+});

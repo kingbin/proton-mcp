@@ -6,7 +6,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { X509Certificate } from "node:crypto";
 import { mkdir, readFile, writeFile, chmod } from "node:fs/promises";
 
-import { CERT_PATH, CONFIG_DIR, CONFIG_PATH, ConfigError, loadConfig, officeStatus, parseConfig, trustProblems, type Config } from "./core/config.js";
+import { CERT_PATH, CONFIG_DIR, CONFIG_PATH, ConfigError, loadConfig, markdownStatus, officeStatus, parseConfig, trustProblems, type Config } from "./core/config.js";
 import { GuardError, type MessageRef } from "./core/guards.js";
 import { bridgePassword } from "./core/keychain.js";
 import { tlsOptions } from "./core/tls.js";
@@ -188,6 +188,7 @@ async function doctor(): Promise<number> {
     cfg = await loadConfig();
     line(true, "Config loaded");
     console.log(`     ${officeStatus(cfg)}`);
+    console.log(`     ${markdownStatus(cfg)}`);
   } catch (e) {
     line(false, "Config", `${setupMessage(e)}`);
   }

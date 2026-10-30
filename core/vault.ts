@@ -15,6 +15,9 @@ export const OFFICE_EXTENSIONS: readonly string[] = [".docx", ".xlsx", ".pptx"];
 export const OFFICE_DISABLED_MESSAGE =
   "Office documents are disabled; set allowOfficeDocuments: true to enable (see SECURITY.md)";
 
+export const MARKDOWN_DISABLED_MESSAGE =
+  "Markdown files are disabled; set allowMarkdown: true to enable (see SECURITY.md)";
+
 const MAX_NAME = 120;
 const DENIED_SEGMENTS = new Set(["templates", ".obsidian", ".claude"]);
 // eslint-disable-next-line no-control-regex
@@ -147,6 +150,9 @@ export async function saveFile(
   }
   if (OFFICE_EXTENSIONS.includes(ext) && !cfg.allowOfficeDocuments) {
     throw new GuardError("TYPE_NOT_ALLOWED", OFFICE_DISABLED_MESSAGE);
+  }
+  if (ext === ".md" && !cfg.allowMarkdown) {
+    throw new GuardError("TYPE_NOT_ALLOWED", MARKDOWN_DISABLED_MESSAGE);
   }
   if (data.length > cfg.maxAttachmentBytes) {
     throw new GuardError("TOO_LARGE", `File too large: ${name} (${data.length} bytes, max ${cfg.maxAttachmentBytes})`);

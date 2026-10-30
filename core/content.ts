@@ -929,6 +929,95 @@ function isZipPolyglot(d: Buffer): boolean {
   return d.includes(Buffer.from([0x50, 0x4b, 0x03, 0x04])) && d.includes(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
 }
 
+/**
+ * Markdown that Obsidian plugins can execute: code fences for Dataview JS, JS Engine, Templater-
+ * style scripting and Meta Bind JS; Templater tags; and raw HTML or URL schemes that run script.
+ * Case-insensitive, no backtracking, linear time. Only applied when allowMarkdown is true.
+ */
+const MD_DANGEROUS =
+  /(?:`{3,}|~{3,})[ \t]*(?:dataviewjs|dataview|js-engine|javascript|js|button|meta-bind-js)(?![\w-])|<%|<script|<iframe|<object|<embed|javascript:/i;
+
+function isSafeMarkdown(data: Buffer): boolean {
+  return isUtf8Text(data) && !MD_DANGEROUS.test(data.toString("utf8"));
+}
+
+/**
+ * CSV: valid UTF-8 text in which no field, after leading spaces and an opening quote, starts with
+ * a spreadsheet formula trigger: = + @ TAB CR, or "-" followed by anything but a digit or ".".
+ * A single linear pass; handles quoted fields, "" escapes, commas and line breaks in quotes,
+ * CRLF and LF. A lone "-" field is allowed (nothing follows it).
+ */
+function isSafeCsv(data: Buffer): boolean {
+  if (!isUtf8Text(data)) return false;
+  const s = data.toString("utf8");
+  const n = s.length;
+  // 0 = at field start (value not begun), 1 = unquoted, 2 = quoted, 3 = after closing quote
+  let state = 0;
+  let began = false; // quoted value has its first significant character
+  let minus = false; // first value char was "-"; the next value char decides
+  const first = (c: number): boolean => {
+    // c is the first significant character of a field; false when it is a formula trigger.
+    if (c === 0x3d || c === 0x2b || c === 0x40 || c === 0x09 || c === 0x0d) return false;
+    if (c === 0x2d) minus = true;
+    return true;
+  };
+  const afterMinus = (c: number): boolean => {
+    minus = false;
+    return (c >= 0x30 && c <= 0x39) || c === 0x2e;
+  };
+  for (let i = 0; i < n; i++) {
+    const c = s.charCodeAt(i);
+    if (state === 2) {
+      if (c === 0x22) {
+        if (s.charCodeAt(i + 1) === 0x22) {
+          i++; // escaped quote is a value character
+          if (minus) {
+            if (!afterMinus(c)) return false;
+          } else if (!began) {
+            began = true;
+            first(c);
+          }
+        } else {
+          state = 3;
+          minus = false;
+        }
+        continue;
+      }
+      if (minus) {
+        if (!afterMinus(c)) return false;
+      } else if (!began && c !== 0x20) {
+        // leading spaces inside the quotes are skipped
+        began = true;
+        if (!first(c)) return false;
+      }
+      continue;
+    }
+    // Record and field separators outside quotes.
+    if (c === 0x2c || c === 0x0a || (c === 0x0d && (state !== 0 || s.charCodeAt(i + 1) === 0x0a))) {
+      state = 0;
+      minus = false;
+      began = false;
+      continue;
+    }
+    if (state === 3) continue;
+    if (state === 1) {
+      if (minus && !afterMinus(c)) return false;
+      continue;
+    }
+    // state 0
+    if (c === 0x20) continue;
+    if (c === 0x22) {
+      state = 2;
+      began = false;
+      continue;
+    }
+    state = 1;
+    began = true;
+    if (!first(c)) return false;
+  }
+  return true;
+}
+
 const CHECKS: ReadonlyMap<string, (data: Buffer) => boolean> = new Map(Object.entries({
   ".pdf": (d) => ascii(d, 0, 5) === "%PDF-" && !isZipPolyglot(d),
   ".png": (d) => startsWith(d, [0x89, 0x50, 0x4e, 0x47]),
@@ -940,8 +1029,8 @@ const CHECKS: ReadonlyMap<string, (data: Buffer) => boolean> = new Map(Object.en
   ".xlsx": isPlainOoxml,
   ".pptx": isPlainOoxml,
   ".txt": isUtf8Text,
-  ".csv": isUtf8Text,
-  ".md": isUtf8Text,
+  ".csv": isSafeCsv,
+  ".md": isSafeMarkdown,
 }));
 
 /** Extensions that have a content check. Every saveable extension must be in here. */

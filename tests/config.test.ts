@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmod, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseConfig, loadConfig, trustProblems, isDeniedMailbox, officeStatus, ConfigError, DENIED_MAILBOXES } from "../core/config.js";
+import { parseConfig, loadConfig, trustProblems, isDeniedMailbox, officeStatus, markdownStatus, ConfigError, DENIED_MAILBOXES } from "../core/config.js";
 
 test("allowOfficeDocuments defaults to false, accepts a boolean, and doctor's status line says which", () => {
   const off = parseConfig(base());
@@ -235,5 +235,21 @@ test("unknown config keys are rejected (strict schema)", () => {
     const raw = base();
     mutate(raw);
     assert.throws(() => parseConfig(raw), ConfigError);
+  }
+});
+
+test("allowMarkdown defaults to false, accepts a boolean, and doctor's status line says which", () => {
+  const off = parseConfig(base());
+  assert.equal(off.allowMarkdown, false);
+  assert.match(markdownStatus(off), /^Markdown \(\.md\): disabled/);
+  const raw = base();
+  raw.allowMarkdown = true;
+  const on = parseConfig(raw);
+  assert.equal(on.allowMarkdown, true);
+  assert.match(markdownStatus(on), /enabled/);
+  for (const bad of ["true", 1, null]) {
+    const r = base();
+    r.allowMarkdown = bad;
+    assert.throws(() => parseConfig(r), ConfigError, String(bad));
   }
 });
