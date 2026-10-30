@@ -18,6 +18,9 @@ export const OFFICE_DISABLED_MESSAGE =
 export const MARKDOWN_DISABLED_MESSAGE =
   "Markdown files are disabled; set allowMarkdown: true to enable (see SECURITY.md)";
 
+export const MARKDOWN_REFUSED_MESSAGE =
+  "Markdown refused: it must be plain text without code fences, code spans, HTML, template tags, `$=`, or link schemes other than http, https and mailto (see SECURITY.md)";
+
 const MAX_NAME = 120;
 const DENIED_SEGMENTS = new Set(["templates", ".obsidian", ".claude"]);
 // eslint-disable-next-line no-control-regex
@@ -156,6 +159,9 @@ export async function saveFile(
   }
   if (data.length > cfg.maxAttachmentBytes) {
     throw new GuardError("TOO_LARGE", `File too large: ${name} (${data.length} bytes, max ${cfg.maxAttachmentBytes})`);
+  }
+  if (ext === ".md" && !contentMatches(ext, data)) {
+    throw new GuardError("TYPE_NOT_ALLOWED", MARKDOWN_REFUSED_MESSAGE + `: ${name}`);
   }
   if (!contentMatches(ext, data)) {
     throw new GuardError("TYPE_NOT_ALLOWED", `Content does not match its ${ext} extension (or is a macro-enabled document): ${name}`);

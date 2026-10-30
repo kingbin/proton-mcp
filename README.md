@@ -106,9 +106,9 @@ The save tool's description tells the assistant to confirm the message, attachme
 
 ## Markdown and CSV
 
-Markdown (`.md`) is **off by default**. A note saved into an Obsidian vault can run code if plugins such as Dataview JS, JS Engine or Templater are installed. To save Markdown, set `"allowMarkdown": true`. Even then a `.md` file is refused if it contains a code fence with language `dataviewjs`, `dataview`, `js-engine`, `javascript`, `js`, `button` or `meta-bind-js`, a Templater tag (`<%`), `<script`, `<iframe`, `<object`, `<embed` or `javascript:` (all case-insensitive). This is a best-effort filter, not a sanitizer. `doctor` shows whether Markdown is enabled.
+Markdown (`.md`) is **off by default**. A note saved into an Obsidian vault can run code if plugins such as Dataview JS, JS Engine, Templater or Meta Bind are installed, and inline Dataview (`` `$=...` ``) and code spans are executed too. To save Markdown, set `"allowMarkdown": true`. The check is then strict, not a denylist: a `.md` file is refused if it contains any code fence (a line starting with three backticks or tildes), any backtick (inline code), any `<` that starts an HTML tag or comment (`<` followed by a letter, `/`, `!` or `?`), `<%`, `$=`, or a link or autolink with a URI scheme other than `http`, `https` or `mailto` (HTML entities such as `&#106;avascript:` are decoded first). Headings, lists, emphasis, tables and http(s) links are accepted. `doctor` shows whether Markdown is enabled.
 
-CSV files are refused if any field (after surrounding quotes and leading spaces) starts with `=`, `+`, `@`, a tab or a carriage return, or with `-` followed by anything other than a digit or `.`. This blocks spreadsheet formula injection; negative numbers such as `-5` and `-0.5` are fine.
+CSV files are refused if any field (after surrounding quotes and leading spaces) starts with `=`, `+`, `@`, a tab or a carriage return, or with `-` unless the whole field is a plain number (`-5`, `-0.5`, `-.5`, `-1e5`); a bare `-` is refused. This blocks spreadsheet formula injection.
 
 ## Office documents
 

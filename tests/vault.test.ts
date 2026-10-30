@@ -1259,7 +1259,7 @@ test("Markdown is refused by default with a message saying how to enable it", as
 
 test("benign Markdown is accepted when allowMarkdown is true", async () => {
   const on = { ...cfg, allowMarkdown: true };
-  const md = "# Notes\n\n- item\n\n```json\n{\"a\": 1}\n```\n\n```python\nprint(1)\n```\n\nSee [link](https://example.com).\n";
+  const md = "# Notes\n\n- item *one* and **two**\n1. first\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n> quote\n\nSee [link](https://example.com), [mail](mailto:a@example.com), [w](http://example.com/a?b=1&c=2) and [[Wiki Link]].\n\n[ref]: https://example.com\n";
   assert.equal(await saveFile(on, HOME, "ok.md", Buffer.from(md)), `${HOME}/ok.md`);
 });
 
@@ -1274,6 +1274,22 @@ const DANGEROUS_MD = [
   "~~~dataviewjs\nx\n~~~",
   "> ```DataViewJS\n> x",
   "````  JS {x}\nx",
+  "`$=dv.pages().length`",
+  "`= this.file.name`",
+  "[x](&#106;avascript:alert(1))",
+  "[x](&#x6A;avascript&colon;alert(1))",
+  "[x](java&Tab;script:alert(1))",
+  "[x](file:///etc/passwd)",
+  "[x](obsidian://open?vault=v)",
+  "[x]: javascript:alert(1)",
+  "[x](data:text/html;base64,AAAA)",
+  "<details><summary>x</summary></details>",
+  "<!-- c -->",
+  "<?php x",
+  "   ```\nx\n```",
+  "   ~~~\nx\n~~~",
+  "$=dv.x",
+  "&#96;x&#96;",
   "<% tp.system.prompt() %>",
   "<script>alert(1)</script>",
   "<SCRIPT src=x>",
@@ -1322,7 +1338,6 @@ test("ordinary CSV with negative numbers and quoted commas is accepted", () => {
     "name,amount,note\r\nBob,-5,\"a, b\"\r\nAmy,-0.5,\"say \"\"hi\"\"\"\r\nZed,-.5,\"x\ny=z\"\n",
     "a,b\n1,2",
     "a,b\n\"-3\",x+y\n",
-    "a,b\n-,a=b\n",
     "",
   ]) {
     assert.equal(csvOk(s), true, JSON.stringify(s));
@@ -1338,7 +1353,33 @@ test("CSV check is linear on 1 MB of hostile filler", () => {
     ["spaces then quote", " ".repeat(1 << 20) + '"'],
     ["crlf", "a\r\n".repeat(1 << 18)],
     ["lone CRs", "a\r".repeat(1 << 19)],
+    ["long digit minus field", "-" + "1".repeat(1 << 20) + "x"],
   ] as const) {
     fast(`csv ${what}`, () => csvOk(s));
+  }
+});
+
+test("CSV minus fields must be whole numbers", () => {
+  for (const s of ["a\n-5+cmd|' /c calc'!A1\n", "a\n-\n", "a\n\"-\"\n", "a\n-5x\n", "a\n-1e\n", "a\n-5 \n", "a\n-\n5"]) {
+    assert.equal(csvOk(s), false, JSON.stringify(s));
+  }
+  for (const s of ["a\n-1e5\n", "a\n-0.5\n", "a\n-.5\n", "a\n-5.\n", "a\n\"-2.5E-3\"\n", "a,b\n-1,-2"]) {
+    assert.equal(csvOk(s), true, JSON.stringify(s));
+  }
+});
+
+test("strict Markdown check is linear on 1 MB of hostile filler", () => {
+  for (const [what, s] of [
+    ["link openers", "](".repeat(1 << 19)],
+    ["ref openers", "[".repeat(1 << 20)],
+    ["ref lines", "[a]:\n".repeat(1 << 18)],
+    ["entities", "&#".repeat(1 << 19)],
+    ["entity run", "&" + "a".repeat(1 << 20)],
+    ["ampersands", "&amp;".repeat(1 << 18)],
+    ["angle brackets", "< ".repeat(1 << 19)],
+    ["long dest", "](" + "a".repeat(1 << 20)],
+    ["spaces", " ".repeat(1 << 20)],
+  ] as const) {
+    fast(`md ${what}`, () => contentMatches(".md", Buffer.from(s)));
   }
 });

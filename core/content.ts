@@ -929,23 +929,70 @@ function isZipPolyglot(d: Buffer): boolean {
   return d.includes(Buffer.from([0x50, 0x4b, 0x03, 0x04])) && d.includes(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
 }
 
-/**
- * Markdown that Obsidian plugins can execute: code fences for Dataview JS, JS Engine, Templater-
- * style scripting and Meta Bind JS; Templater tags; and raw HTML or URL schemes that run script.
- * Case-insensitive, no backtracking, linear time. Only applied when allowMarkdown is true.
- */
-const MD_DANGEROUS =
-  /(?:`{3,}|~{3,})[ \t]*(?:dataviewjs|dataview|js-engine|javascript|js|button|meta-bind-js)(?![\w-])|<%|<script|<iframe|<object|<embed|javascript:/i;
+const NAMED_ENTITIES: Readonly<Record<string, string>> = {
+  colon: ":", tab: "\t", newline: "\n", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+  lpar: "(", rpar: ")", sol: "/", num: "#", grave: "`", dollar: "$", equals: "=", percnt: "%",
+  excl: "!", quest: "?", lsqb: "[", rsqb: "]", lbrack: "[", rbrack: "]", nbsp: " ",
+};
 
-function isSafeMarkdown(data: Buffer): boolean {
-  return isUtf8Text(data) && !MD_DANGEROUS.test(data.toString("utf8"));
+/** Decode numeric and a few named HTML entities, repeatedly (capped), in linear time. */
+function decodeEntities(text: string): string {
+  let cur = text;
+  for (let round = 0; round < 4; round++) {
+    const next = cur.replace(/&(?:#[xX]([0-9a-fA-F]{1,8})|#([0-9]{1,9})|([A-Za-z]{2,10}));?/g, (m, hex?: string, dec?: string, name?: string) => {
+      if (name !== undefined) return NAMED_ENTITIES[name.toLowerCase()] ?? m;
+      const cp = hex !== undefined ? parseInt(hex, 16) : parseInt(dec as string, 10);
+      return cp > 0 && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff) ? String.fromCodePoint(cp) : m;
+    });
+    if (next === cur) break;
+    cur = next;
+  }
+  return cur;
+}
+
+// Code fences (also inside quotes or lists), inline code spans, HTML tags and comments, Templater,
+// Dataview inline JS.
+const MD_ACTIVE = /`|~~~|<[A-Za-z/!?]|<%|\$=/;
+// Link destinations: inline `](dest`, and reference definitions `[x]: dest`.
+const MD_INLINE_DEST = /\]\([ \t\r\n]{0,40}<?([^)>]{0,40})/g;
+const MD_REF_DEST = /^ {0,3}\[[^\]\n]{0,1000}\]:[ \t]{0,40}<?([^>\n]{0,40})/gm;
+const SAFE_SCHEMES: ReadonlySet<string> = new Set(["http", "https", "mailto"]);
+
+function badDestination(dest: string): boolean {
+  // Browsers drop whitespace and control characters inside a scheme.
+  // eslint-disable-next-line no-control-regex
+  const d = dest.replace(/[\u0000-\u0020\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/g, "");
+  const m = /^([A-Za-z][A-Za-z0-9+.-]{0,63}):/.exec(d);
+  return m !== null && !SAFE_SCHEMES.has(m[1]!.toLowerCase());
 }
 
 /**
+ * Strict Markdown (only reached when allowMarkdown is true): no code fences, code spans, HTML,
+ * Templater tags or `$=`, and no link scheme but http, https and mailto. Entities are decoded
+ * first. Linear time.
+ */
+function isSafeMarkdown(data: Buffer): boolean {
+  if (!isUtf8Text(data)) return false;
+  const text = decodeEntities(data.toString("utf8"));
+  if (MD_ACTIVE.test(text)) return false;
+  for (const re of [MD_INLINE_DEST, MD_REF_DEST]) {
+    re.lastIndex = 0;
+    for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+      if (badDestination(m[1]!)) return false;
+      re.lastIndex = m.index + 1; // overlapping openers: every one is checked
+    }
+  }
+  return true;
+}
+
+const CSV_NUMBER = /^-(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+const CSV_NUMBER_MAX = 64;
+
+/**
  * CSV: valid UTF-8 text in which no field, after leading spaces and an opening quote, starts with
- * a spreadsheet formula trigger: = + @ TAB CR, or "-" followed by anything but a digit or ".".
- * A single linear pass; handles quoted fields, "" escapes, commas and line breaks in quotes,
- * CRLF and LF. A lone "-" field is allowed (nothing follows it).
+ * a spreadsheet formula trigger: = + @ TAB CR. A field starting with "-" must be, as a whole, a
+ * plain number (CSV_NUMBER); a bare "-" is refused. A single linear pass; handles quoted fields,
+ * "" escapes, commas and line breaks in quotes, CRLF and LF.
  */
 function isSafeCsv(data: Buffer): boolean {
   if (!isUtf8Text(data)) return false;
@@ -954,16 +1001,21 @@ function isSafeCsv(data: Buffer): boolean {
   // 0 = at field start (value not begun), 1 = unquoted, 2 = quoted, 3 = after closing quote
   let state = 0;
   let began = false; // quoted value has its first significant character
-  let minus = false; // first value char was "-"; the next value char decides
-  const first = (c: number): boolean => {
-    // c is the first significant character of a field; false when it is a formula trigger.
-    if (c === 0x3d || c === 0x2b || c === 0x40 || c === 0x09 || c === 0x0d) return false;
-    if (c === 0x2d) minus = true;
-    return true;
+  let buf: string | undefined; // value of a "-" field so far (bounded)
+  const add = (ch: string): boolean => {
+    if (buf === undefined) return true;
+    buf += ch;
+    return buf.length <= CSV_NUMBER_MAX;
   };
-  const afterMinus = (c: number): boolean => {
-    minus = false;
-    return (c >= 0x30 && c <= 0x39) || c === 0x2e;
+  const finish = (): boolean => {
+    const b = buf;
+    buf = undefined;
+    return b === undefined || CSV_NUMBER.test(b);
+  };
+  const first = (c: number): boolean => {
+    if (c === 0x3d || c === 0x2b || c === 0x40 || c === 0x09 || c === 0x0d) return false;
+    if (c === 0x2d) buf = "-";
+    return true;
   };
   for (let i = 0; i < n; i++) {
     const c = s.charCodeAt(i);
@@ -971,37 +1023,33 @@ function isSafeCsv(data: Buffer): boolean {
       if (c === 0x22) {
         if (s.charCodeAt(i + 1) === 0x22) {
           i++; // escaped quote is a value character
-          if (minus) {
-            if (!afterMinus(c)) return false;
-          } else if (!began) {
+          if (!began) {
             began = true;
             first(c);
-          }
+          } else if (!add('"')) return false;
         } else {
           state = 3;
-          minus = false;
+          if (!finish()) return false;
         }
         continue;
       }
-      if (minus) {
-        if (!afterMinus(c)) return false;
-      } else if (!began && c !== 0x20) {
-        // leading spaces inside the quotes are skipped
+      if (!began) {
+        if (c === 0x20) continue; // leading spaces inside the quotes are skipped
         began = true;
         if (!first(c)) return false;
-      }
+      } else if (!add(s[i]!)) return false;
       continue;
     }
     // Record and field separators outside quotes.
     if (c === 0x2c || c === 0x0a || (c === 0x0d && (state !== 0 || s.charCodeAt(i + 1) === 0x0a))) {
+      if (!finish()) return false;
       state = 0;
-      minus = false;
       began = false;
       continue;
     }
     if (state === 3) continue;
     if (state === 1) {
-      if (minus && !afterMinus(c)) return false;
+      if (!add(s[i]!)) return false;
       continue;
     }
     // state 0
@@ -1012,10 +1060,9 @@ function isSafeCsv(data: Buffer): boolean {
       continue;
     }
     state = 1;
-    began = true;
     if (!first(c)) return false;
   }
-  return true;
+  return finish();
 }
 
 const CHECKS: ReadonlyMap<string, (data: Buffer) => boolean> = new Map(Object.entries({
