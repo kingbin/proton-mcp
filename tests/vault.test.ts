@@ -1259,7 +1259,7 @@ test("Markdown is refused by default with a message saying how to enable it", as
 
 test("benign Markdown is accepted when allowMarkdown is true", async () => {
   const on = { ...cfg, allowMarkdown: true };
-  const md = "# Notes\n\n- item *one* and **two**\n1. first\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n> quote\n\nSee [link](https://example.com), [mail](mailto:a@example.com), [w](http://example.com/a?b=1&c=2) and [[Wiki Link]].\n\n[ref]: https://example.com\n";
+  const md = "# Notes\n\n- item *one* and **two**\n1. first\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n> quote\n\nSee [a](HTTP://example.com), [h](#heading), [link](https://example.com), [mail](mailto:a@example.com), [w](http://example.com/a?b=1&c=2) and [[Wiki Link]].\n\n[ref]: https://example.com\n";
   assert.equal(await saveFile(on, HOME, "ok.md", Buffer.from(md)), `${HOME}/ok.md`);
 });
 
@@ -1282,6 +1282,16 @@ const DANGEROUS_MD = [
   "[x](file:///etc/passwd)",
   "[x](obsidian://open?vault=v)",
   "[x]: javascript:alert(1)",
+  "[x]:\n  javascript:alert(1)",
+  "text [x]:\n\n\n<javascript:alert(1)>",
+  "mid-line [x]: file:///etc/passwd",
+  "[x](" + " ".repeat(100) + "javascript:alert(1))",
+  "[x](" + "\n".repeat(100) + "javascript:alert(1))",
+  "[x](" + " \n".repeat(60) + "&#106;avascript:alert(1))",
+  "[x](" + " ".repeat(100) + "&#x6A;avascript&colon;alert(1))",
+  "[x]()",
+  "[x](   )",
+  "[x](notes.md)",
   "[x](data:text/html;base64,AAAA)",
   "<details><summary>x</summary></details>",
   "<!-- c -->",
@@ -1379,6 +1389,9 @@ test("strict Markdown check is linear on 1 MB of hostile filler", () => {
     ["angle brackets", "< ".repeat(1 << 19)],
     ["long dest", "](" + "a".repeat(1 << 20)],
     ["spaces", " ".repeat(1 << 20)],
+    ["openers then whitespace", "](".repeat(1 << 18) + " ".repeat(1 << 19)],
+    ["opener then 1 MB whitespace", "](" + " \n".repeat(1 << 19)],
+    ["ref openers then whitespace", "]:".repeat(1 << 18) + "\n".repeat(1 << 19)],
   ] as const) {
     fast(`md ${what}`, () => contentMatches(".md", Buffer.from(s)));
   }

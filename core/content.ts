@@ -953,36 +953,43 @@ function decodeEntities(text: string): string {
 // Code fences (also inside quotes or lists), inline code spans, HTML tags and comments, Templater,
 // Dataview inline JS.
 const MD_ACTIVE = /`|~~~|<[A-Za-z/!?]|<%|\$=/;
-// Link destinations: inline `](dest`, and reference definitions `[x]: dest`.
-const MD_INLINE_DEST = /\]\([ \t\r\n]{0,40}<?([^)>]{0,40})/g;
-const MD_REF_DEST = /^ {0,3}\[[^\]\n]{0,1000}\]:[ \t]{0,40}<?([^>\n]{0,40})/gm;
-const SAFE_SCHEMES: ReadonlySet<string> = new Set(["http", "https", "mailto"]);
+const DEST_PREFIXES: readonly string[] = ["http://", "https://", "mailto:", "#"];
 
-function badDestination(dest: string): boolean {
-  // Browsers drop whitespace and control characters inside a scheme.
-  // eslint-disable-next-line no-control-regex
-  const d = dest.replace(/[\u0000-\u0020\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/g, "");
-  const m = /^([A-Za-z][A-Za-z0-9+.-]{0,63}):/.exec(d);
-  return m !== null && !SAFE_SCHEMES.has(m[1]!.toLowerCase());
+function isSpaceLike(c: number): boolean {
+  return (
+    c <= 0x20 || (c >= 0x7f && c <= 0xa0) || c === 0x1680 || (c >= 0x2000 && c <= 0x200f) ||
+    c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000 || c === 0xfeff
+  );
+}
+
+/** True when the link destination starting at `from` (after any whitespace and one "<") is allowed. */
+function destinationAllowed(text: string, from: number): boolean {
+  let j = from;
+  while (j < text.length && isSpaceLike(text.charCodeAt(j))) j++;
+  if (text.charCodeAt(j) === 0x3c) j++;
+  const head = text.slice(j, j + 8).toLowerCase();
+  return DEST_PREFIXES.some((p) => head.startsWith(p));
+}
+
+/** Fail closed: every "](" and every "]:" must be followed by an http(s), mailto or "#" destination. */
+function linkDestinationsAllowed(text: string): boolean {
+  for (const opener of ["](", "]:"]) {
+    for (let i = text.indexOf(opener); i !== -1; i = text.indexOf(opener, i + 1)) {
+      if (!destinationAllowed(text, i + 2)) return false;
+    }
+  }
+  return true;
 }
 
 /**
  * Strict Markdown (only reached when allowMarkdown is true): no code fences, code spans, HTML,
- * Templater tags or `$=`, and no link scheme but http, https and mailto. Entities are decoded
- * first. Linear time.
+ * Templater tags or `$=`, and every link destination starts with http://, https://, mailto: or #.
+ * Entities are decoded first. Linear time.
  */
 function isSafeMarkdown(data: Buffer): boolean {
   if (!isUtf8Text(data)) return false;
   const text = decodeEntities(data.toString("utf8"));
-  if (MD_ACTIVE.test(text)) return false;
-  for (const re of [MD_INLINE_DEST, MD_REF_DEST]) {
-    re.lastIndex = 0;
-    for (let m = re.exec(text); m !== null; m = re.exec(text)) {
-      if (badDestination(m[1]!)) return false;
-      re.lastIndex = m.index + 1; // overlapping openers: every one is checked
-    }
-  }
-  return true;
+  return !MD_ACTIVE.test(text) && linkDestinationsAllowed(text);
 }
 
 const CSV_NUMBER = /^-(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
